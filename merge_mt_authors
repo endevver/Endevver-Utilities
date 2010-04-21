@@ -1,0 +1,253 @@
+#!/usr/bin/perl
+
+# AUTHOR:   Jay Allen, Textura Design
+# Date:     April 16, 2007
+# Version:  1.0
+#
+# Use  merge_authors -h for info
+#
+# $Id: merge_mt_authors 11 2007-04-20 00:23:04Z jay $
+
+use strict;
+use lib 'lib';
+use lib 'extlib';
+use MT 3.3;
+use Data::Dumper;
+my %API = (
+    author => 'MT::Author',
+    commenter => 'MT::Author',
+    comment => 'MT::Comment',
+    entry   => 'MT::Entry',
+    template => 'MT::Template',
+    blog => 'MT::Blog',
+    notification => 'MT::Notification',
+    templatemap => 'MT::TemplateMap',
+    category => 'MT::Category',
+    banlist => 'MT::IPBanList',
+    ping => 'MT::TBPing',
+    ping_cat => 'MT::TBPing',
+    log => 'MT::Log',
+    tag => 'MT::Tag',
+    group => 'MT::Group',
+    role => 'MT::Role',
+    permission => 'MT::Permission',
+    association => 'MT::Association',
+);
+
+use constant DEBUG => 1;
+use Smart::Comments;
+{
+
+    my $mt = new MT(Config => 'mt.cfg') or die MT->errstr;
+
+    # Get command line variables
+    my %opts;
+    %opts = (
+        CLI                 => 1,
+        help                => sub { usage() }, 
+        );
+
+    use Getopt::Long;
+    GetOptions( \%opts, 'old=i',    'new=i',    'verbose',
+                        'testrun',  'debug:i',  'help'  );
+    sub opt { return $opts{+shift} }
+
+    delete $opts{help};
+    delete $opts{controlled_import};
+
+    $opts{old} && $opts{new} or usage('You must specify both --old and --new author IDs.');
+    $opts{old} != $opts{new} or usage('You must specify different --old and --new author IDs.');
+    
+    my %updates = (
+        'entry'       => ['author_id'],
+        'log'       => ['author_id'],
+        'category'  => ['author_id'],
+        );
+    push(@{$updates{$_}}, 'created_by', 'modified_by')  foreach keys %API;
+
+    my %author;
+    @author{'old','new'} = init($opts{old}, $opts{new});
+    errstr() and die "ERROR: ".errstr();
+
+    do_simple_updates($opts{old}, $opts{new}, %updates);
+
+    do_merged_update('association', $opts{old}, $opts{new},
+                     [qw(blog_id group_id role_id type)]);
+    errstr() and die errstr();
+
+    do_merged_update('permission', $opts{old}, $opts{new},
+                     [qw(blog_id role_mask role_mask2 role_mask3 role_mask4)]);
+
+    confer_sysadmin($author{new}) if $author{old}->is_superuser;
+
+    delete_author($author{old});
+
+    log_event(%author);
+
+    errstr() and die "ERROR: ".errstr();
+}
+
+sub usage {
+    my $msg = shift || '';
+    my $usage = <<USAGE;
+$0 [OPTIONS]
+Options:
+   --old ID     Blog IDs to export.  Option can be repeated or values comma-separated
+   --new ID     Specifies import of a ZIPFILE archive
+   --testrun    Specifies a test run where no actual data is touched
+   --verbose    Makes program annoying
+   --debug      Debug stuff
+   --help       Yields these instructions
+USAGE
+
+    print join("\n", $msg, $usage);
+    exit;
+}
+
+# Load old and new author records to make sure they exist
+sub init {
+    my ($old_id, $new_id) = @_;
+    require MT::Author;
+    my @authors;
+    foreach my $id ($old_id, $new_id) {
+        my $author = MT::Author->load($id) or return error("Could not load author ID $id\n");
+        push(@authors, $author);
+    }
+    @authors;
+}
+
+sub do_simple_updates {
+    return if errstr();
+    my ($old_id, $new_id, %updates) = @_;
+
+    ## %updates
+
+    foreach my $type (keys %updates) {
+        print "Updating $type records...\n";
+        foreach my $field (@{ $updates{$type} }) {
+            set_by_key($API{$type}, {$field => $old_id}, {$field => $new_id});
+        }
+    }
+}
+
+sub do_merged_update {
+    return if errstr();
+    my ($type, $old_id, $new_id, $test_cols) = @_;
+    print "Merging $type records...\n";
+    my $class = $API{$type};
+    eval "require $class";
+    return error($@) if $@;
+
+    my %test_cols = map { $_ => 1 } @$test_cols;
+    my @columns = grep { $test_cols{$_} } @{($class->column_names)[0]};
+
+    my @old_records = $class->load({ author_id => $old_id });
+    ### Old records: @old_records
+
+    my @new_records = $class->load({ author_id => $new_id });
+    my %seen_new = map { multi_column_value_key($_, @columns) => 1 } @new_records;
+    ### New records: %seen_new
+
+    my (@update, @delete);
+    foreach my $record (@old_records) {
+        my $key = multi_column_value_key($record, @columns);
+        ### Looking for key: $key
+        if ($seen_new{$key}) {
+            debug("Removing $class ID ". $record->id. " for author ID $old_id");
+            $record->remove unless opt('testrun');
+        } else {
+            debug("Updating $class ID ". $record->id. " for author ID $old_id with ID $new_id");
+            $record->author_id($new_id);
+            unless (opt('testrun')) {
+                $record->save or die "Could not save $class record: ".$record->errstr;
+            }
+        }
+    }
+    
+}
+
+
+sub multi_column_value_key {
+    return if errstr();
+    my ($obj, @columns) = @_;
+    join('-', map { $obj->column($_) } @columns);
+}
+
+# MT::Author
+#     delete old author
+sub delete_author {
+    return if errstr();
+    my $record = shift;
+    debug('Removing old author record (ID: '.$record->id.')');
+    $record->remove unless opt('testrun');
+}
+
+sub confer_sysadmin {
+    my $author = shift;
+    return if errstr() or $author->is_superuser;
+    $author->is_superuser(1);
+    $author->save;
+}
+
+# Record that author with old ID was merged into
+# author with new ID and old author was removed
+sub log_event {
+    return if errstr();
+    my (%authors) = @_;
+
+    my $msg = sprintf('User %s (ID: %s) has been merged '
+                    . 'into user %s (ID: %s) and removed.',
+                        $authors{old}->name, $authors{old}->id,
+                        $authors{new}->name, $authors{new}->id);
+    if (opt('testrun')) {
+        debug('DEBUG: '.$msg);
+    } else {
+        print $msg."\n";        
+        require MT::Log;
+        my $log = MT::Log->new;
+        $log->set_values({
+                message => $msg,
+                class => 'system',
+                level => MT::Log::SECURITY()
+            });
+        $log->save;
+    }
+}
+
+# set_by_key(CLASS, \%load_args, \%keyval_hash);
+# set_by_key('MT::Comment', {comment_id => 22}, {comment_email => 'jay@jayallen.org'});
+sub set_by_key {
+    return if errstr();
+    my ($class, $load_args, $updates) = @_;
+
+    eval "require $class";
+    $@ and return error("Could not initialize $class: $@\n");
+    my $iter;
+    # if (! $API{$type}->properties->{audit}) {
+    #     foreach (keys %{$load_args}) {
+    #         return 0 if /(created|modified)_by/;
+    #     }
+    # }
+    my $counter = 0;
+    my $iter = $class->load_iter($load_args) or return;
+
+    while (my $obj = $iter->()) {
+        ### Updating: "$class ID ${\$obj->id} with ".join(', ', map { "$_ => $updates->{$_}"} keys %$updates)
+        $obj->set_values($updates) or return error($obj->errstr);
+        if (! opt('testrun')) {
+            $obj->save or die "Saving $class record failed: ". $obj->errstr;
+        }
+        $counter++;
+    }
+    $counter;
+}
+
+{
+    my $ERRSTR = '';
+    sub error { $ERRSTR = shift and return }
+    sub errstr { return $ERRSTR }
+}
+
+sub debug {
+    print STDERR (+shift)."\n" if opt('debug');
+}

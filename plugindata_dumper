@@ -1,0 +1,60 @@
+#!/usr/bin/perl -w
+
+# AUTHOR:   Jay Allen, Textura Design
+# Date:     April 22nd, 2007
+# Version:  1.0
+#
+# $Id: plugindata_dumper 370 2007-10-06 07:24:11Z jay $
+
+use strict;
+
+use FindBin qw($Bin);
+use lib "$Bin/lib";
+use lib "$Bin/extlib";
+use lib 'extlib';
+use lib 'lib';
+
+use Data::Dumper;
+use YAML;
+
+my $USE_YAML = 1;
+
+my ($key, $plugin, $sort);
+use Getopt::Long;
+GetOptions ('key=s' => \$key, 'plugin=s' => \$plugin, 'sort=s' => \$sort);
+
+use MT;
+my $mt = MT->new(Config=>'../mt-config.cgi');
+
+my ($terms,$args) = {};
+$key and $terms->{key} = $key;
+$plugin and $terms->{plugin} = $plugin;
+
+$args->{sort} = $sort ? $sort : 'id';
+use MT::PluginData;
+my $iter = MT::PluginData->load_iter($terms, $args);
+while (my $pdobj = $iter->()) {
+    my $data = $pdobj->data;
+    my $hash = $pdobj->to_hash;
+    $hash->{'plugindata.data'} = $data;
+    print $USE_YAML ? YAML::Dump($hash) : Dumper($hash);
+    
+}
+
+sub usage {
+    print "Usage: $0 [BLOG_ID]\n";
+    exit;
+}
+
+
+# $VAR1 = {
+#           'plugindata.id' => '14',
+#           'plugindata.plugin' => 'widget-manager',
+#           'plugindata.data' => {
+#                                  'modulesets' => {
+#                                                    'Full sidebar' => '779,812,793,796,792,799,789'
+#                                                  },
+#                                  'installed' => '1'
+#                                },
+#           'plugindata.key' => 'configuration:blog:7'
+#         };

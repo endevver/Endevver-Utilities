@@ -1,0 +1,36 @@
+#!/usr/bin/perl
+
+# DIR FILEFILTER CHNAGEFROM CHANGETO
+
+use Getopt::Long;
+use File::Find;
+use File::Basename;
+
+GetOptions (\%opt, 'dir=s', 'filter=s');
+
+$opt{dir} ||= '.';
+
+die "Usage: ". basename($0). " [-dir START_DIRECTORY] [-filter FILE FILTER PATTERN] PATTERN REPLACEMENT\n" unless (@ARGV == 2);
+
+($frompat, $topat) = @ARGV;
+
+#print "D:". $opt{'dir'} ." L:". $opt{'filter'} ." F:$frompat T:$topat\n";
+
+#find sub { 
+#	print $File::Find::name, -d && '/', "\n" 
+#	}, @ARGV;
+
+
+find(
+     sub{
+	 return unless (-T $_);
+	 if ($opt{'filter'}) { return unless /$opt{'filter'}/; }
+	 local($^I,@ARGV)=(".rsedbak",$_);
+	 while(<>) {
+	     s/$frompat/$topat/g;
+	     print;
+	 }
+     },
+     ".")
+
+#find .  -print | xargs perl -pi.rsedbak -e 's#http://826.openwire.com#http://826.local#g'

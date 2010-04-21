@@ -1,0 +1,152 @@
+#!/usr/bin/perl -w
+
+# AUTHOR:   Jay Allen, Textura Design
+# Date:     April 22nd, 2007
+# Version:  1.0
+#
+# $Id: migrate_rightfields 370 2007-10-06 07:24:11Z jay $
+
+my %old = ( url => 'https://client.texturadesign.com/bnn/site',
+            path => '/home/tdi/client.texturadesign.com/html/bnn/site');
+my %new = ( url => 'http://bnn.tdi.local/bnn',
+            path => '/Users/jay/Sites/tdi.local/bnn/html/bnn');
+
+use strict;
+
+if (! $ENV{MT_HOME}) {
+    print "Please set your MT_HOME environment variable.";
+    exit 1;
+}
+
+use lib "$ENV{MT_HOME}/lib";
+use lib "$ENV{MT_HOME}/extlib";
+use lib "$ENV{MT_HOME}/plugins/RightFields/lib";
+
+use Data::Dumper;
+
+# my ($key, $plugin, $sort);
+# use Getopt::Long;
+# GetOptions ('key=s' => \$key, 'plugin=s' => \$plugin, 'sort=s' => \$sort);
+
+use MT;
+my $mt = MT->new(Config=>'../mt-config.cgi');
+
+use RightFields;
+use MT::Blog;
+
+my $plugin_key = 'rightfields';
+
+my %cfgs;
+my $blog_iter = MT::Blog->load_iter();
+while (my $blog = $blog_iter->()) {
+    my $key = 'blog_'.$blog->id.'_cfg_extra';
+    my $cfg = load_plugindata($key) || {};
+    if (%$cfg) {
+        $cfgs{$key} = $cfg;
+    } else {
+        printf "NO CONFIG DATA: blog %s\n", $blog->id;
+    }
+}
+
+foreach my $pdkey (keys %cfgs) {
+    (my $blog_id = $pdkey) =~ s/^blog_//;
+    my $cfg = $cfgs{$pdkey};
+    foreach my $field (keys %{$cfg->{cols}}) {
+        my $hash = $cfg->{cols}->{$field};
+        foreach my $key (keys %$hash) {
+            next unless 
+                $hash->{$key} and $hash->{$key} =~ m/($old{url}|$old{path})/;
+            printf "Modifying $pdkey.$field.$key = %s\n", $hash->{$key};
+            foreach my $elem (qw(url path)) {
+                my $old = $old{$elem};
+                my $new = $new{$elem};
+                $cfgs{$pdkey}->{cols}->{$field}->{$key} =~ 
+                    s!$old!$new!;
+            }
+            printf "Modified $pdkey.$field.$key = %s\n", $hash->{$key};
+        }
+    }
+    save_plugindata($pdkey, $cfg);
+}
+
+sub load_plugindata {
+	my ($key) = @_;
+	require MT::PluginData;
+	my $data = MT::PluginData->load({
+		plugin => $plugin_key, key => $key
+	});
+	return 0 unless $data;
+	return $data->data;
+}
+
+sub save_plugindata {
+	my ($key, $data) = @_;
+	require MT::PluginData;
+	my $plugindata = MT::PluginData->load({
+		'plugin' => $plugin_key, 'key' => $key
+	});
+	if (!$plugindata) {
+		$plugindata = MT::PluginData->new;
+		$plugindata->plugin($plugin_key);
+		$plugindata->key($key);
+	}
+	$plugindata->data($data);
+	$plugindata->save || return 0;
+}
+
+
+sub config_key {
+	my ($blog_id, $type) = @_;
+	if ($blog_id == -1) {
+		return "default_$type";
+	} else {
+		return "blog_${blog_id}_cfg_$type";
+	}
+}
+
+
+sub load_rf_settings {
+	my ($q, $key) = @_;
+	my $data_key = config_key($q->param('blog_id'), $key);
+	return load_plugindata($data_key);
+}
+
+sub save_rf_settings {
+	my ($q, $key, $data) = @_;
+	my $data_key = config_key($q->param('blog_id'), $key);
+	return save_plugindata($data_key, $data);
+}
+
+
+# my ($terms,$args) = {};
+# $key and $terms->{key} = $key;
+# $plugin and $terms->{plugin} = $plugin;
+# 
+# $args->{sort} = $sort ? $sort : 'id';
+# use MT::PluginData;
+# my $iter = MT::PluginData->load_iter($terms, $args);
+# while (my $pdobj = $iter->()) {
+#     my $data = $pdobj->data;
+#     my $hash = $pdobj->to_hash;
+#     $hash->{'plugindata.data'} = $data;
+#     print Dumper($hash);
+#     
+# }
+# 
+# sub usage {
+#     print "Usage: $0 [BLOG_ID]\n";
+#     exit;
+# }
+# 
+# 
+# # $VAR1 = {
+# #           'plugindata.id' => '14',
+# #           'plugindata.plugin' => 'widget-manager',
+# #           'plugindata.data' => {
+# #                                  'modulesets' => {
+# #                                                    'Full sidebar' => '779,812,793,796,792,799,789'
+# #                                                  },
+# #                                  'installed' => '1'
+# #                                },
+# #           'plugindata.key' => 'configuration:blog:7'
+# #         };

@@ -1,0 +1,60 @@
+#!/usr/bin/perl
+
+print "This tool is CURRENTLY NON-FUNCTIONAL\n";
+print <<EOD;
+
+A utility for managing the status of users and groups from the command line.
+Usage: usergroup_status [OPTIONS]
+  -c, --count=#       Number of iterations to make. This works with -i
+                      (--sleep) only.
+  -#, --debug[=name]  Output debug log. Often this is 'd:t:o,filename'.
+  -f, --force         Don't ask for confirmation on drop database; with
+                      multiple commands, continue even if an error occurs.
+  -C, --compress      Use compression in server/client protocol.
+  --character-sets-dir=name 
+                      Directory where character sets are.
+  --default-character-set=name
+
+Usage:  usergroup_status [OPTIONS]
+
+Options:
+One of more of the following options are required.
+
+  -e, --enable-user=arg     Enables the user specified in the argument. Users
+                            can be specified by user ID, user name or display
+                            name (searched in that order).  See the section
+                            called "User/Group Arguments" below for more.
+  -E, --enable-all-users    Enables all users in the system
+  -d, --disable-user=arg    Disables the user specified by arg. See the
+                            inverse option above for more.
+  -D, --disable-all         Disables all users in the system
+  -A, --admins-only         Disables all non-sysadmin users
+  -S, --single-user=arg     Disables all users except for the specified user
+  -n, --dry-run             Shows what would take place but makes no changes
+  -q, --quiet               Suppress all output during execution
+  -v, --verbose             Output more progress information
+  -h, --help                Prints this message
+
+
+USER/GROUP ARGUMENTS
+
+  Combining Options
+  -----------------
+  Any non-conflicting options can be combined. When combining a batch action
+  with an individual action, the batch action is always performed first,
+  providing a fine tuning mechanism through which you can achieve the desired
+  results.
+
+
+  Wildcards and Partial Matching
+  ------------------------------
+  Normal shell wildcard characters are supported and will search user ID,
+  username and display name in that order until it finds a match. If an
+  individual action multiple matches
+  
+   Wildcards are allowed and partial matches for username and display name
+  will be returned for non-ID in the case where no full match exists EOD
+
+EOD
+
+

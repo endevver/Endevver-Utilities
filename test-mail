@@ -1,0 +1,17 @@
+#!/usr/bin/perl -w
+use strict;
+
+use lib 'lib', '../lib';
+use MT::Bootstrap;
+
+use MT;
+use MT::Mail;
+
+my $mt = MT->new()
+    or die MT->errstr;
+
+my %headers = ( To => $ARGV[0], Subject => 'Hello World' );
+
+my $body = "This is a test message.";
+
+MT::Mail->send(\%headers, $body) or die MT::Mail->errstr;

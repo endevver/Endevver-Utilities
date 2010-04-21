@@ -1,0 +1,367 @@
+#!/usr/bin/perl -w
+#
+# Author: Jay Allen, Endevver LLC
+# Date: 2008-06-23
+
+use strict;
+
+@ARGV || usage();
+sub usage {
+    $_[0] and print STDERR "Error: $_[0]\n";
+    print STDERR "Usage: ".basename($0)." --(dump|load) --datadir==DIRECTORYPATH [--init] [--class=CLASS] [--notclass=CLASS]\n";
+    print STDERR <<EOD;
+    --dump      Load objects from databaase and export to YAML files.
+    --load      Load objects from YAML files and import into database
+    --init      Initialize the database tables and proceed as with --load
+    --datadir   The path to the YAML import/export directory
+    --file      The name/path of a YAML import/export file, good for 
+                single class actions.
+    --class     Limits actions to only this class.  Option can be specified repeatedly.
+    --notclass  Excludes actions to specified class.  Option can be specified repeatedly.
+    --help      Show this message
+EOD
+    exit;
+}
+
+use Getopt::Long;
+use File::Basename;
+use File::Spec;
+use Data::Dumper;
+
+my %opt;
+GetOptions(\%opt,   'file=s', 'datadir=s','dump','load', 'quiet', 'force',
+                    'init','class=s@','notclass=s@','help', 'verbose');
+
+$opt{help} and usage();
+
+delete $opt{verbose} if $opt{quiet};
+
+# TODO Implement --file options
+$opt{file} and usage('Sorry, the file option is not yet implemented.');
+
+conflict('file', 'datadir')     if $opt{file} and $opt{datadir};
+conflict('load', 'dump')        if $opt{load} and $opt{dump};
+conflict('class', 'notclass')   if $opt{class} and $opt{notclass};
+
+
+usage('Specified data directory does not exist or is not readable.')
+    if $opt{datadir} and ! -d $opt{datadir};
+
+my @CLASSES = qw( MT::Author MT::Blog MT::Category MT::Comment MT::Entry
+                  MT::IPBanList MT::Log MT::Notification MT::Permission
+                  MT::Placement MT::Template MT::TemplateMap MT::Trackback
+                  MT::TBPing MT::Session MT::PluginData MT::Config MT::FileInfo
+                  MT::Tag MT::ObjectTag MT::Group MT::Role MT::Association
+                  );
+
+# Classes to export have been specified
+if ($opt{class}) {
+    @CLASSES = map { m/^MT::/ ? $_ : 'MT::'.$_ } @{$opt{class}};
+}
+
+# Remove excluded classes
+if ($opt{notclass}) {
+    my %exclude =
+        map { m/^MT::/ ? ($_ => 1) : ('MT::'.$_ => 1) } @{$opt{notclass}};
+
+    @CLASSES = grep { ! $exclude{$_} } @CLASSES;
+}
+
+## %ids will hold the highest IDs of each class.
+my %ids;
+
+eval {
+    local $SIG{__WARN__} = sub { print STDERR "**** WARNING: $_[0]\n" };
+
+    my $mt = MT::CLITool->new() or die MT->errstr;
+
+    $opt{force} || confirm_action($mt->{cfg}->Database) || exit;
+
+    require YAML;
+    for my $class (@CLASSES) {
+
+        progress("Class: ", $class);
+        eval "use $class";
+        $@ and die $@;
+        
+        if ($opt{load}) {
+            if ($opt{init}) {
+                progress("Initializing $class tables...");
+                $class->remove_all;
+            }
+            save_data($class, 
+                ($opt{datadir} || $opt{file} ? load_from_file($class) 
+                                             : load_from_stdin($class)));
+        }
+        elsif (my $data = load_data($class)) {
+
+            if ( $opt{datadir} || $opt{file} ) {
+                save_to_file($class, $data);
+            }
+            else {
+                print YAML::Dump($data);
+            }
+        }
+        progress();
+    }
+
+    # print YAML::Dump(\%ids);
+
+    if ($mt->{cfg}->ObjectDriver =~ /oracle/) {
+        progress("Updating sequences");
+        for my $class (keys %ids) {
+            progress("    $class => $ids{$class}");
+            MT::Object->driver->drop_sequence($class);
+            MT::Object->driver->create_sequence($class);
+        }
+    }
+};
+if ($@) {
+    progress("An error occurred while loading data: $@");
+} else {
+    progress("Done copying data! All went well.");
+}
+
+sub confirm_action {
+    my $db = shift;
+    my $prompt;
+    if ($opt{load}) {
+        my $in = $opt{datadir} || $opt{file} || 'STDIN';
+        $prompt = join('', ($opt{init}  ? "Initialize $db and import data " 
+                                        : "Import data into $db "),
+                            "from $in? (y/N)");
+    }
+    else {
+        my $out = $opt{datadir} || $opt{file} || 'standard output';
+        $prompt = "Export data from $db to $out? (y/N)";
+    }
+
+    progress('CLASSES: ',
+            (($opt{class} or $opt{notclass}) ? join(', ', @CLASSES) : 'All'));
+    
+    use Term::ReadLine;
+    my $term = new Term::ReadLine 'Simple Perl calc';
+    my $OUT = $term->OUT || \*STDOUT;
+    my $res;
+    while ( defined ($_ = $term->readline($prompt)) ) {
+        $res = $_;
+        if (! $res or $res =~ m/^n/i) {
+            progress("Aborting...");
+            return;
+        }
+        last;
+    }
+    1;
+}
+
+sub load_data {
+    my $class = shift;
+    my $iter = $class->load_iter or die "Could not load up the iter\n";
+
+    my @data;
+    while (my $obj = $iter->()) {
+        progress("    ", $obj->id);
+
+        # Update IDs only auto_increment.
+        $ids{$class} = $obj->id
+            if $obj->column_defs->{id}->{auto} &&
+               (!$ids{$class} || $obj->id > $ids{$class});
+
+        $obj = clean_object($obj);
+
+        ## Touch the text column to make sure we read in
+        ## any linked templates.
+        #if ($class eq 'MT::Template') {
+        #    my $text = $obj->text;
+        #}
+
+        push(@data, $obj);
+    }
+    return @data ? \@data : [];
+}
+
+sub save_to_file {
+    my $class = shift;
+    my $data = shift;
+    return unless $class and $data and @$data;
+    my $file = file_for_class($class);
+    progress("Dumping data to $file");
+    YAML::DumpFile(File::Spec->catfile($opt{datadir},$file), $data);
+}
+
+sub load_from_stdin {
+    local $/;           # enable "slurp" mode
+    local $_ = <STDIN>;    # whole file now here
+
+    my $data = YAML::Load($_);
+    my $count = $data && @$data ? @$data : 0;
+    progress("Loaded $count objects.");
+    return ($count ? $data : []);
+}
+
+sub load_from_file {
+    my $class = shift or return;
+    my $file = File::Spec->catfile($opt{datadir}, file_for_class($class));
+    my ($count, $data);
+    if (-e $file) {
+        progress("Loading data from $file");
+        $data = YAML::LoadFile($file);
+        $count = $data && @$data ? @$data : 0;
+        progress("Loaded $count objects.");
+        # die Dumper($data) if $class eq 'MT::PluginData';
+    }
+    else {
+        progress("No data file found for $class. Skipping...");
+    }
+    return ($count ? $data : []);
+}
+
+sub save_data {
+    my $class = shift;
+    my $data = shift;
+    foreach my $obj (@$data) {
+
+        $obj = massage_plugindata($obj) if $class eq 'MT::PluginData';
+
+        eval { $obj->id };
+        if ($@)  {
+            progress("\$obj: ".Dumper($obj));
+            die "Died..........";
+        }
+        progress("    ", $obj->id);
+
+        $obj->linked_file('') if $class eq 'MT::Template';
+
+        my ($rc, $err);
+        if ($class eq 'MT::Group') {
+            $rc = $obj->group_save();
+        }
+        elsif ($class eq 'MT::Tag') {
+            $rc = $obj->tag_save();
+        }
+        else {
+            $rc = $obj->save;
+            $rc or $err = $obj->errstr;
+        }
+         $rc or die 'Could not save data: '.$err."\n"
+    }
+}
+
+sub massage_plugindata {
+    my $obj = shift;
+
+    my $pd; # Final form
+    
+    if (ref($obj) eq 'MT::PluginData') {
+        # Unserialize and repackage PluginData object
+        my $data = $obj->data() || {};
+        $obj->column('data', '');
+        $pd = { object => $obj, data => $data };
+    }
+    elsif (ref($obj) eq 'HASH') {
+        # Restore PluginData object with re-serialized data
+        $pd = $obj->{object};
+        $pd->data($obj->{data});
+    }
+    else {
+        die 'Unknown reference type for plugin data: '.Dumper($obj);
+    }
+
+    $pd;
+}
+
+sub clean_object {
+    my $obj = shift;
+    my $defs = $obj->column_defs;
+
+    foreach my $col (keys %{$defs}) {
+        my $def = $defs->{$col};
+        if ($def->{type} =~ /(?:integer|smallint)/ && $obj->$col) {
+            my $val = $obj->$col;
+            if ($val =~ /\D/) {
+                $val =~ s/\D//g;
+                $obj->$col($val);
+            }
+        }
+        if ($def->{type} =~ /(?:string)/ && $obj->$col) {
+            require MT::I18N;
+            my $val = $obj->$col;
+            if (MT::I18N::length_text($val) > $def->{size}) {
+                $obj->$col(MT::I18N::substr_text($val,0,$def->{size}));
+            }
+        }
+    }
+    if (ref($obj) eq 'MT::PluginData') {
+        my $data = $obj->data() || {};
+        $obj->column('data','');
+        $obj = {object => $obj, data => $data};
+    }
+    return $obj;
+}
+
+sub file_for_class {
+    my $class = shift;
+    my $file = lc($class).'.yaml';
+    $file =~ s{::}{_}g;
+    $file;
+}
+
+sub conflict {
+    usage(sprintf('The --%s and --%s options are mutually exclusive.'), @_);
+}
+
+sub progress {
+    return unless $opt{verbose};
+    print STDERR @_,"\n";
+}
+
+BEGIN {
+    use FindBin qw($Bin);
+    use lib "$Bin/lib";
+    use lib "$Bin/extlib";
+    use MT::CLITool;
+}
+
+1;
+
+package MT::Tag;
+
+sub tag_save {
+    my $tag = shift;
+    my $name = $tag->name;
+    return $tag->error(MT->translate("Tag must have a valid name"))
+        unless defined($name) && length($name);
+    my $n8d = $tag->normalize;
+    return $tag->error(MT->translate("Tag must have a valid name"))
+        unless defined($n8d) && length($n8d);
+    # maintain the private flag...
+    $tag->is_private( $name =~ m/^@/ ? 1 : 0 );
+    $tag->SUPER::save();
+}
+
+1;
+
+package MT::Group;
+
+sub group_save {
+    my $group = shift;
+    my $res = $group->SUPER::save(@_)
+        or return $group->error($group->errstr());
+    require MT::Association;
+    if (my $assoc_iter = MT::Association->load_iter({
+        type => [ MT::Association::GROUP_ROLE(),
+                  MT::Association::GROUP_BLOG_ROLE() ],
+        group_id => $group->id,
+        })) {
+        while (my $assoc = $assoc_iter->()) {
+            $assoc->rebuild_permissions;
+        }
+    }
+    $res;
+}
+
+
+1;
+
+
+__END__

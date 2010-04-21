@@ -1,0 +1,24 @@
+#!/usr/bin/perl -w
+#
+# mt_user_status
+#
+
+use strict;
+use lib 'extlib';
+use lib 'lib';
+use MT;
+use MT::Author;
+my $mt = new MT(Config => 'mt.cfg') or die MT->errstr;
+
+#my $username = 'davemetz';
+my $username = shift @ARGV
+    or die "No username specified";
+    
+my $user = MT::Author->load({ name => $username })
+    or die "User '$username' not found...";
+
+$user->is_superuser(1);
+$user->can_create_blog(1);
+$user->can_view_log(1);
+$user->save or die 'Error saving user record: '.$user->errstr;
+

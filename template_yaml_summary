@@ -1,0 +1,59 @@
+#!/usr/bin/perl
+use strict; use warnings; use diagnostics; use Data::Dumper;
+# Reads a YAML dump (from Blogsplicer) of the MT::Template table and
+# prints a summary of the template information
+
+my $mt = MT::CLITool->new() or die MT->errstr;
+
+# require MT;
+require MT::Template;
+
+my @templates;
+my $template;
+my $i;
+while (<>) {
+
+    if (m{^\- \!\!perl/hash\:MT\:\:Template}) {
+        if ($template) {
+            print "Adding template %s (blog ID: %s)\n" if m{name:};
+            push(@templates, $template) if $template;            
+            print Dumper($template);
+        }
+        # print "Creating a template\n";
+        $template = MT::Template->new or die;
+    } 
+    elsif (m{^\s+(blog_id|linked_file|name|outfile|type):\s+(.*)$}x) {
+        # print "Filling in $1 with $2\n";
+        $template->$1($2);
+        $template->errstr and die $template->errstr;
+    } else {
+        # print;
+    }
+}
+print "Templates: ".@templates."\n";
+
+# - !!perl/hash:MT::Template
+#   __tokens: ~
+#   column_values:
+#     blog_id: 1
+#     build_dynamic: 0
+#     created_on: 20060724143353
+#     id: 97
+#     linked_file: /home/blogs/blogs.intel.com/html/templates/it/index/meta_sidebar.tmpl
+#     linked_file_mtime: 1193167047
+#     linked_file_size: 71
+#     modified_by: 19
+#     modified_on: 20070924004026
+#     name: 'Meta: Sidebar'
+#     outfile: inc/sidebar.ssi
+#     rebuild_me: 1
+#     text: '<div id="sidebar-it-full"><$MTWidgetManager name="Full sidebar"$></div>'
+#     type: index
+#   needs_db_sync: 1
+
+BEGIN {
+    use FindBin qw($Bin);
+    use lib "$Bin/lib";
+    use lib "$Bin/extlib";
+    use MT::CLITool;
+}

@@ -1,0 +1,92 @@
+#!/usr/bin/perl -w
+#
+# mt_user_status
+#
+
+use strict;
+use Data::Dumper;
+use lib 'extlib';
+use lib 'lib';
+use Getopt::Long;
+
+use MT;
+use MT::Author;
+my $mt = new MT(Config => 'mt.cfg') or die MT->errstr;
+
+my %opt;
+GetOptions (\%opt, 'sysadmin', 'can_create_blogs', 'can_view_log', 'randompass', 'dupepass', 'pass=s', 'email:s', 'hint:s');
+@ARGV or usage('ERROR: No usernames specified') and exit;
+
+($opt{pass} || $opt{randompass} || $opt{dupepass}) or usage('ERROR: No password option specified') and exit;
+
+
+foreach my $username (@ARGV) {
+    my %param;
+    $param{user_name} = $username;
+    $param{user_password}   = $opt{pass}        ? $opt{pass} 
+                            : $opt{randompass}  ? random_password()
+                                                : $username;
+    $param{is_superuser}    = $opt{sysadmin};
+    $param{can_create_blog} = $opt{can_create_blog};
+    $param{can_view_log}    = $opt{can_view_log};
+
+    $param{user_email} = $opt{email};
+    $param{user_hint}  = 'recoup';
+
+    printf("Creating %s...%s", $username, (create_author(%param) ? "ok\n" : "FAILED"));
+    print ': '.MT->errstr if MT->errstr;
+}
+
+# my $user = MT::Author->load({name => $username});
+# if (!$user) {
+#     my
+# }
+
+sub create_author {
+    my (%param) = @_;
+    return unless $param{user_name};
+
+    my $author = MT::Author->get_by_key({name => $param{user_name}});
+    return MT->error('User already exists') if $author->id;
+
+    require MT::L10N;
+    local $MT::CallbacksEnabled = 1;
+
+    # TBD: parameter for username/password provided by user from $app
+    require URI::Escape;
+
+    $author->set_values({
+        type                => MT::Author::AUTHOR(),
+        email               => exists $param{user_email} ? $param{user_email} : '',
+        hint                => exists $param{user_hint} ? URI::Escape::uri_unescape($param{user_hint}) : '',
+        is_superuser        => (exists $param{is_superuser} and $param{is_superuser}),
+        can_create_blog     => (exists $param{can_create_blog} and $param{can_create_blog}),
+        can_view_log        => (exists $param{can_view_log} and $param{can_view_log}),
+        preferred_language  => exists $param{user_lang} ? $param{user_lang} : MT::ConfigMgr->instance->DefaultLanguage,
+    });
+    $author->set_password(exists $param{user_password} ? $param{user_password} : $param{user_name});
+
+    $author->save;
+    return $author->errstr ? MT->error("Error saving record: ". $author->errstr) : 1;
+}
+
+sub usage {
+    my $msg = shift;
+    print "$msg\n" if $msg;
+    print <<HELP;
+Usage: $0 [OPTIONS] USER1, USER2, USER3, USER4
+Options:
+  --sysadmin            - Grants full system permissions
+  --can_create_blog     - Grants only blog creation permission
+  --can_view_log        - Grants only system activity log viewing permission
+  --pass PASSWORD       - Sets password for each user to PASSWORD
+  --randompass          - Sets password for each user to a randomly generated token
+  --dupepass            - Sets password for each user to their username
+
+HELP
+}
+
+sub random_password {
+    chomp(my $output = `openssl rand -base64 1000 | tr "[:upper:]" "[:lower:]" | tr -cd "[:alnum:]" | tr -d "lo" | cut -c 1-8`);
+    $output;
+}

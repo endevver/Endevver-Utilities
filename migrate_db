@@ -1,0 +1,92 @@
+#!/usr/bin/perl -w
+
+# AUTHOR:   Jay Allen, Textura Design
+# Date:     April 22nd, 2007
+# Version:  1.0
+#
+# $Id: migrate_db 370 2007-10-06 07:24:11Z jay $
+
+# my %old = ( url => 'https://client.texturadesign.com/bnn/site',
+#             path => '/home/tdi/client.texturadesign.com/html/bnn/site');
+# my %new = ( url => 'http://bnn.tdi.local/bnn',
+#             path => '/Users/jay/Sites/tdi.local/bnn/html/bnn');
+
+use strict;
+
+if (! $ENV{MT_HOME}) {
+    print "Please set your MT_HOME environment variable.";
+    exit 1;
+}
+
+use lib "$ENV{MT_HOME}/lib";
+use lib "$ENV{MT_HOME}/extlib";
+
+use Data::Dumper;
+
+my ($class, $field, $old, $new);
+use Getopt::Long;
+GetOptions ('class=s' => \$class, 
+            'field=s' => \$field,
+            'old=s' => \$old,
+            'new=s' => \$new);
+if ($field and ! $class) {
+    ($class = $field) =~ s/^([^_]+)_.*$/$1/;
+}
+use MT;
+my $mt = MT->new(Config=>'../mt-config.cgi');
+
+my $prefix = lc($class);
+$class = 'MT::'.ucfirst($class);
+eval "use $class" or die "Could not use class $class";
+
+my %cfgs;
+my $obj_iter = $class->load_iter();
+while (my $obj = $obj_iter->()) {
+    if ($obj->$field and $obj->$field =~ m!$old!) {
+        my $before = $obj->$field;
+        print 'BEFORE: '. $before."\n";
+
+        (my $var = $obj->$field) =~ s!$old!$new!;
+        if ($var ne $before) {
+            print 'AFTER: '. $var."\n";
+            $obj->$field($var);
+            $obj->save;
+        }
+        print "\n";
+    }
+}
+
+
+
+# my ($terms,$args) = {};
+# $key and $terms->{key} = $key;
+# $plugin and $terms->{plugin} = $plugin;
+# 
+# $args->{sort} = $sort ? $sort : 'id';
+# use MT::PluginData;
+# my $iter = MT::PluginData->load_iter($terms, $args);
+# while (my $pdobj = $iter->()) {
+#     my $data = $pdobj->data;
+#     my $hash = $pdobj->to_hash;
+#     $hash->{'plugindata.data'} = $data;
+#     print Dumper($hash);
+#     
+# }
+# 
+# sub usage {
+#     print "Usage: $0 [BLOG_ID]\n";
+#     exit;
+# }
+# 
+# 
+# # $VAR1 = {
+# #           'plugindata.id' => '14',
+# #           'plugindata.plugin' => 'widget-manager',
+# #           'plugindata.data' => {
+# #                                  'modulesets' => {
+# #                                                    'Full sidebar' => '779,812,793,796,792,799,789'
+# #                                                  },
+# #                                  'installed' => '1'
+# #                                },
+# #           'plugindata.key' => 'configuration:blog:7'
+# #         };

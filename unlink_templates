@@ -1,0 +1,42 @@
+#!/usr/bin/perl -w
+
+# AUTHOR:   Jay Allen, Endevver Consulting
+# Date:     June 23rd, 2008
+# Version:  1.1
+#
+# $Id: unlink_templates 877 2008-07-30 12:27:09Z jay $
+
+use strict;
+use File::Basename;
+sub usage {
+    print 'Usage: '.basename($0)." BLOG_ID \n";
+    exit;
+}
+
+warn "You should probably be using mttmpl now...";
+
+my ($blog_id) = @ARGV;
+print "ERROR: Must specify blog_id\n" and usage() 
+    unless defined $blog_id;
+
+my $mt = MT::CLITool->new() or die MT->errstr;
+
+# Load and iterate through templates for blog
+require MT::Template;
+my $iter = MT::Template->load_iter({blog_id => $blog_id});
+while (my $tmpl = $iter->()) {
+
+    if ($tmpl->linked_file) {
+        print "Unlinking ",$tmpl->name,'...';
+        $tmpl->column('linked_file','');
+        print "OK ",$tmpl->linked_file,"\n";
+        $tmpl->save or die $tmpl->errstr;
+    }
+}
+
+BEGIN {
+    use FindBin qw($Bin);
+    use lib "$Bin/lib";
+    use lib "$Bin/extlib";
+    use MT::CLITool;
+}

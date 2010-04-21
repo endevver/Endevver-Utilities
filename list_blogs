@@ -1,0 +1,63 @@
+#!/usr/bin/perl -w
+
+# AUTHOR:   Jay Allen, Textura Design
+# Date:     September 22, 2007
+# Version:  1.0
+#
+# $Id: list_blogs 862 2008-06-23 14:39:04Z jay $
+
+use strict;
+
+our $Bin;
+
+sub usage {
+    $_[0] and print "$_[0]\n";
+    print "Usage: $0 (I should write something here shouldn't I?) \n";
+    exit;
+}
+
+use Getopt::Long;
+my %opt;
+GetOptions(\%opt, "mt=s",'cols=s@','help');
+
+$opt{help} and usage();
+$opt{cols} ||= [ qw( id name ) ];
+$ENV{MT_HOME} = $opt{mt} || MT::CLITool->mt_dir()
+             || usage('Please specify the location of your MT directory '
+                     .'with the -mt option or set the MT_HOME environment '
+                     .'variable.');
+
+if ($ENV{MT_HOME}) {
+    eval "use lib \"$ENV{MT_HOME}/lib\";";
+    eval "use lib \"$ENV{MT_HOME}/extlib\";";
+}
+
+my $mt = MT::CLITool->new() or die MT->errstr;
+
+# require YAML;
+# print YAML::Dump(blog_list());
+
+my $blogs = blog_list();
+foreach my $blog (@$blogs) {
+    printf "%-5s %s\n", $blog->{id}, $blog->{name};
+}
+
+sub blog_list {
+    require MT::Blog;
+    my $iter = MT::Blog->load_iter();
+    my @blogs;
+    while (my $blog = $iter->()) {
+        my %data;
+        %data = map { $_ => $blog->$_ } @{ $opt{cols} };
+        push @blogs, \%data;
+    }
+    return @blogs ? \@blogs : {};
+}
+
+BEGIN {
+    use FindBin qw($Bin);
+    use lib "$Bin/lib";
+    use lib "$Bin/extlib";
+    use MT::CLITool;
+}
+

@@ -1,0 +1,303 @@
+#!/usr/bin/perl
+# show_version - A tool for extracting version numbers of Subversion revision
+#                information from perl scripts/modules.
+#
+# AUTHOR:   Jay Allen, Textura Design
+# Date:     October 25th, 2007
+# Version:  1.0
+# $Id: show_version 599 2007-10-26 09:53:52Z jay $
+
+BEGIN {
+    use FindBin qw($Bin);
+    use lib "$Bin/lib";
+    use lib "$Bin/extlib";
+}
+
+use strict;
+use warnings;
+use lib 'extlib';
+use Cwd qw(getcwd);
+use File::Grep qw( fgrep );
+use ExtUtils::MakeMaker;
+use Getopt::Long;
+use File::Basename qw( basename );
+use Pod::Usage; 
+
+use vars qw/%opt $cwd $verbose *name *dir *prune/;
+
+$verbose = 1;
+$cwd = getcwd();
+
+# Read and validate options
+%opt = ('verbose' => \$verbose);
+GetOptions(\%opt,
+    '0',
+    'delimiter',
+    'filename',
+    'help+',
+    'id|svnid',
+    'man',
+    'n|svnrev',
+    'quiet',
+    'recurse',
+    'verbose+',
+)
+    or pod2usage(2);
+
+# Display help if requested
+if ($opt{help} and $opt{help} > 1) {
+    pod2usage(-exitstatus => 0, -verbose => 2);
+} elsif ($opt{help}) {
+    pod2usage(1);
+}
+
+# Not yet implemented
+usage('Subversion revision extraction not yet implemented')
+    if $opt{subrev} or $opt{SUBID};
+
+# Separator between output items
+$opt{separator} =   $opt{0}         ?   chr(0)
+                :   $opt{separator} ?   $opt{separator}
+                                    :   "\n";
+# Verbosity
+if ($opt{quiet}) {
+    $verbose = 0;
+    delete $opt{verbose};
+}
+
+# Define files to search. If -r or -R specified, gather files found while
+# recursively searching specified directies or current working directory.
+# Otherwise, files should be specified as command line arguments
+if ($opt{recurse}) {
+    extract_from_dirs(@ARGV);
+} elsif (@ARGV) {
+    extract_from_files(@ARGV);
+}
+else {
+    usage('No files specified');
+}
+
+sub usage {
+    print STDERR 'Error: ',"$_[0]\n" if @_;
+    pod2usage(1);
+    # pod2usage(-exitstatus => 1, -verbose => 1);
+}
+
+sub extract_from_files {
+    my @files = @_;
+    # Iterate over files searching for versions or revisions information
+    foreach my $file (@files) {
+        my $version = extract_version($file);
+        output_version($file, $version) if $version;
+    }
+}
+
+sub output_version {
+    my ($file, $version) = @_;
+    return unless defined $version;
+    my $ending = $opt{separator};
+    if ($opt{recurse} or $opt{filename}) {
+        printf "%-10s %s$ending", $version, $file;
+    }
+    else {
+        print $version,$ending;
+    }
+    
+}
+sub extract_from_dirs {
+    my @dirs = @_;
+    my @search_dirs;
+    foreach my $d (@dirs) {
+        if (! -d $d) {
+            print STDERR "Not a directory: $d\n";
+            next;
+        }
+        push(@search_dirs, $d);
+    }
+
+    # $File::Find::dir is the current directory name,
+    # $_ is the current filename within that directory
+    # $File::Find::name is the complete pathname to the file.
+    # For example, when examining the file /some/path/foo.ext you will have:
+    # 
+    #     $File::Find::dir  = /some/path/
+    #     $_                = foo.ext
+    #     $File::Find::name = /some/path/foo.ext
+
+    # for the convenience of &wanted calls, including -eval statements:
+    require File::Find;
+
+    my %options = ( follow  => 1,
+                    wanted  => \&find_callback);
+    File::Find::find(\%options, @search_dirs);
+}
+
+sub find_callback {
+
+    *name   = *File::Find::name;
+    *dir    = *File::Find::dir;
+    *prune  = *File::Find::prune;
+
+    return unless (
+        /^.*\.pl\z/s
+        ||
+        /^.*\.pm\z/s
+    );
+
+    if ($verbose > 2) {
+        use Data::Dumper;
+        print Dumper({ '$_' => $_, 
+                        dir => $dir,
+                        name => $name,
+                        prune => $prune});        
+    }
+
+    my $version = extract_version($name);
+    output_version($name, $version) if $version;
+}
+
+sub extract_version {
+    my $file = shift;
+
+    return unless $file =~ /\.p(m|l)$/;
+    
+    # Make absolute path to file
+    my $abs_path =
+        substr($file, 0, 1) eq '/'  ? $file
+                                    : File::Spec->catfile($cwd, $file);
+    if ($verbose > 2) {
+        print Dumper({file => $file, cwd => $cwd, abspath => $abs_path});    
+    }
+    
+    my $version;
+    if ($opt{subrev} or $opt{SUBID}) {
+        #           $Id: show_version 599 2007-10-26 09:53:52Z jay $
+        $version = parse_svninfo($abs_path);
+    }
+    else {
+        # Use Extutils::MakeMaker to parse CPAN-compatible versions
+        $version = MM->parse_version($abs_path);
+        if ($version eq 'undef') { # MM is weird
+            print STDERR "Extutils::MakeMaker failed to find version\n"
+                if $verbose;
+            $version = parse_fuzzy_version($abs_path);
+        } 
+    }
+    return $version;
+}
+
+sub parse_fuzzy_version {
+    my $abs_path = shift;
+
+    my ($version, $matches, @lines);
+
+    ($matches) = fgrep { /\bversion\b/i } $abs_path;
+    if (! $matches->{count}) {
+        print STDERR "Could not find version info: $abs_path\n"
+            if $verbose;
+        return;
+    }
+
+    foreach my $lineno (keys %{$matches->{matches}}) {
+        my $text = $matches->{matches}{$lineno};
+        if ($text =~ m{(?:my\s*)?version\s*=>?\s*['"]?([\d\._ab-])['"]?}i) {
+            $version = $1;
+            last;
+        }
+        else {
+            chomp $text;
+            $text =~ s{^\s+}{};
+            push(@lines, sprintf "\t%-11s %s\n", "Line $lineno:", $text);                
+        }
+    }
+
+    if (! defined $version and $verbose) {
+        print STDERR "Could not parse version info: $abs_path\n";
+        if ($verbose > 1) { print STDERR $_ foreach @lines; }
+    }
+    return $version;
+}
+
+__END__ 
+=head1 NAME 
+
+sample - Using Getopt::Long and Pod::Usage 
+
+=head1 SYNOPSIS 
+
+show_version [-rRf0sSvvqhH] [file ...] 
+
+=head1 OPTIONS 
+
+=over 8 
+
+=item B<-help> 
+
+Print a brief help message and exits. 
+
+=item B<-man> 
+
+Prints the manual page and exits. 
+
+=item B<-r> 
+
+Search recursively in specified director(ies) or current working
+directory if not specified. Reports versions of all found perl scripts
+or modules.  Displays results in a formatted fashion
+
+=item B<-R> 
+
+Like -r except scripts/modules without extractable versions are shown
+
+=item B<-f> 
+
+Show filename with version (default if recursive or multiple files
+specified)
+
+=item B<-0> 
+
+Separate multiple versions by NULL byte
+
+=item B<-s> 
+
+Displays Subversion revision instead of version if Subversion Id line
+is found
+
+=item B<-S> 
+
+Show entire Subversion "Id" line if found
+
+=item B<-v> 
+
+Verbose (default). Writes information to STDERR about files for which
+version information could not be extracted.
+
+=item B<-vv> 
+
+Very verbose.  In addition to the above, also outputs lines in the
+file which may be malconstructed version definitions.
+
+=item B<-q> 
+
+Quiet.  Suppresses STDERR normally written under verbose mode
+
+=item B<-h> 
+
+Displays short help synopsis
+
+=item B<-H> 
+
+Displays man page
+
+=back 
+
+=head1 DESCRIPTION 
+
+B<This program> will read the given input file(s) and do something 
+useful with the contents thereof. 
+
+sub usage {
+    print STDERR 'Error: ',"$_[0]\n" if @_;
+    print <<EOF;
+
+=cut 
