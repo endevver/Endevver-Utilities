@@ -1,0 +1,15 @@
+#!/usr/bin/perl
+use strict;
+use lib 'extlib', 'lib', '../lib';
+use MT;
+my $mt = MT->new(defined $cfg ? (Config => $cfg) : ()) or die MT->errstr;
+
+require MT::Permission;
+my $total     = MT::Permission->count();
+my $perm_iter = MT::Permission->load_iter();
+my $cnt       = 0;
+while ( my $perm = $perm_iter->() ) {
+    print "\rRebuilding ".++$cnt." of $total";
+    $perm->rebuild;
+}
+print "\nAll permissions rebuilt\n";

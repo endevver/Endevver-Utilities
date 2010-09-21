@@ -1,10 +1,8 @@
 #!/usr/bin/perl -w
 
-# AUTHOR:   Jay Allen, Textura Design
+# AUTHOR:   Jay Allen, Endevver LLC
 # Date:     September 22, 2007
-# Version:  1.0
-#
-# $Id: list_blogs 862 2008-06-23 14:39:04Z jay $
+# Version:  1.1
 
 use strict;
 
@@ -21,7 +19,7 @@ my %opt;
 GetOptions(\%opt, "mt=s",'cols=s@','help');
 
 $opt{help} and usage();
-$opt{cols} ||= [ qw( id name ) ];
+$opt{cols} ||= [ qw( id name site_url ) ];
 $ENV{MT_HOME} = $opt{mt} || MT::CLITool->mt_dir()
              || usage('Please specify the location of your MT directory '
                      .'with the -mt option or set the MT_HOME environment '
@@ -39,7 +37,7 @@ my $mt = MT::CLITool->new() or die MT->errstr;
 
 my $blogs = blog_list();
 foreach my $blog (@$blogs) {
-    printf "%-5s %s\n", $blog->{id}, $blog->{name};
+    printf "%-5s %-30s %s\n", $blog->{id}, $blog->{name}, relative_url($blog->{site_url});
 }
 
 sub blog_list {
@@ -53,6 +51,17 @@ sub blog_list {
     }
     return @blogs ? \@blogs : {};
 }
+
+sub relative_url {
+    my $host = shift;
+    return '' unless defined $host;
+    if ($host =~ m!^https?://[^/]+(/.*)$!) {
+        return $1;
+    } else {
+        return '';
+    }
+}
+
 
 BEGIN {
     use FindBin qw($Bin);
