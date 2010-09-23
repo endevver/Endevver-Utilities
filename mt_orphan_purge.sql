@@ -25,7 +25,32 @@
 
 ### HELPER VIEWS AND STORE PROCEDURES ###
 
+DROP TABLE IF EXISTS `dbsplit_log`;
+CREATE TABLE `dbsplit_log` (
+  `dbsplit_log_id` int(11) NOT NULL AUTO_INCREMENT,
+  `dbsplit_log_message` mediumtext,
+  `dbsplit_log_created_on` datetime DEFAULT NULL,
+  PRIMARY KEY (`dbsplit_log_id`),
+  KEY `dbsplit_log_created_on` (`dbsplit_log_created_on`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1;
+
 DELIMITER $$
+
+-- SYNTAX:  update_progress( MSG );
+-- EXAMPLE: CALL update_progress( 'Deleting blog orphans: mt_comment' );
+DROP PROCEDURE IF EXISTS update_progress$$
+CREATE PROCEDURE update_progress
+    (
+        IN in_msg  varchar(255)
+    )
+BEGIN
+    DECLARE l_msg varchar(255);
+    SET @l_msg=in_msg;
+    PREPARE update_log FROM 
+     'INSERT INTO dbsplit_log (dbsplit_log_created_on, dbsplit_log_message) VALUES (now(), ?)';
+    EXECUTE update_log using @l_msg;
+    DEALLOCATE PREPARE update_log;
+END$$
 
 -- SYNTAX:  purge_orphans( PARENT_TABLE, PARENT_PRIMARY_KEY, CHILD_TABLE, CHILD_FOREIGN_KEY );
 -- EXAMPLE: CALL purge_orphaned_meta('mt_blog', 'blog_id', 'mt_comment', 'comment_blog_id' );
@@ -47,10 +72,10 @@ BEGIN
     --              FROM mt_asset LEFT JOIN mt_blog ON asset_blog_id = blog_id
     --             WHERE asset_blog_id != 0 and blog_id = NULL;
     SET @sql = l_sql;
-    PREPARE s1 FROM @sql;
-    EXECUTE s1;
+    PREPARE po FROM @sql;
+    EXECUTE po;
     select in_child_tbl as 'Table', row_count() as 'Records deleted';
-    DEALLOCATE PREPARE s1;
+    DEALLOCATE PREPARE po;
 END$$
 
 -- SYNTAX:    purge_orphaned_meta( OBJECT_TYPE )
@@ -76,10 +101,10 @@ BEGIN
         'AND', l_meta_key, 'NOT IN (SELECT', l_obj_key, 'FROM', l_obj_tbl, ')'
     );
     SET @sql = l_sql;
-    PREPARE s1 FROM @sql;
-    EXECUTE s1;
+    PREPARE pom FROM @sql;
+    EXECUTE pom;
     select l_meta_tbl as 'Table', row_count() as 'Records deleted';
-    DEALLOCATE PREPARE s1;
+    DEALLOCATE PREPARE pom;
 END$$
 
 DELIMITER ;
@@ -88,88 +113,147 @@ DELIMITER ;
 
 SELECT TABLE_NAME as tbl, TABLE_ROWS as rows FROM information_schema.tables WHERE TABLE_SCHEMA = database();
 
+CALL update_progress( 'Starting deletion of blog children' );
+
 ### BLOG CHILDREN ###
 
+CALL update_progress( 'Purging blog orphans: mt_asset' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_asset',                 'asset_blog_id'                         ) \p;
+CALL update_progress( 'Purging blog orphans: mt_association' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_association',           'association_blog_id'                   ) \p;
+CALL update_progress( 'Purging blog orphans: mt_bob_job' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_bob_job',               'bob_job_blog_id'                       ) \p;
+CALL update_progress( 'Purging blog orphans: mt_category' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_category',              'category_blog_id'                      ) \p;
+CALL update_progress( 'Purging blog orphans: mt_comment' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_comment',               'comment_blog_id'                       ) \p;
+CALL update_progress( 'Purging blog orphans: mt_cropper_prototypes' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_cropper_prototypes',    'cropper_prototypes_blog_id'            ) \p;
+CALL update_progress( 'Purging blog orphans: mt_entry' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_entry',                 'entry_blog_id'                         ) \p;
+CALL update_progress( 'Purging blog orphans: mt_featured' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_featured',              'featured_blog_id'                      ) \p;
+CALL update_progress( 'Purging blog orphans: mt_field' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_field',                 'field_blog_id'                         ) \p;
+CALL update_progress( 'Purging blog orphans: mt_fileinfo' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_fileinfo',              'fileinfo_blog_id'                      ) \p;
+CALL update_progress( 'Purging blog orphans: mt_ipbanlist' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_ipbanlist',             'ipbanlist_blog_id'                     ) \p;
+CALL update_progress( 'Purging blog orphans: mt_log' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_log',                   'log_blog_id'                           ) \p;
+CALL update_progress( 'Purging blog orphans: mt_notification' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_notification',          'notification_blog_id'                  ) \p;
+CALL update_progress( 'Purging blog orphans: mt_objectasset' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_objectasset',           'objectasset_blog_id'                   ) \p;
+CALL update_progress( 'Purging blog orphans: mt_objecttag' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_objecttag',             'objecttag_blog_id'                     ) \p;
+CALL update_progress( 'Purging blog orphans: mt_permission' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_permission',            'permission_blog_id'                    ) \p;
+CALL update_progress( 'Purging blog orphans: mt_placement' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_placement',             'placement_blog_id'                     ) \p;
+CALL update_progress( 'Purging blog orphans: mt_pub_batch' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_pub_batch',             'pub_batch_blog_id'                     ) \p;
+CALL update_progress( 'Purging blog orphans: mt_reblog_data' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_reblog_data',           'reblog_data_blog_id'                   ) \p;
+CALL update_progress( 'Purging blog orphans: mt_reblog_sourcefeed' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_reblog_sourcefeed',     'reblog_sourcefeed_blog_id'             ) \p;
+CALL update_progress( 'Purging blog orphans: mt_squeeze_children' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_squeeze_children',      'squeeze_children_blog_id'              ) \p;
+CALL update_progress( 'Purging blog orphans: mt_squeeze_homepages' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_squeeze_homepages',     'squeeze_homepages_blog_id'             ) \p;
+CALL update_progress( 'Purging blog orphans: mt_tbping' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_tbping',                'tbping_blog_id'                        ) \p;
+CALL update_progress( 'Purging blog orphans: mt_template' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_template',              'template_blog_id'                      ) \p;
+CALL update_progress( 'Purging blog orphans: mt_templatemap' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_templatemap',           'templatemap_blog_id'                   ) \p;
+CALL update_progress( 'Purging blog orphans: mt_touch' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_touch',                 'touch_blog_id'                         ) \p;
+CALL update_progress( 'Purging blog orphans: mt_trackback' );
 CALL purge_orphans('mt_blog',       'blog_id',      'mt_trackback',             'trackback_blog_id'                     ) \p;
 
 
 ### ENTRY CHILDREN ###
 
+CALL update_progress( 'Purging entry orphans: mt_checkbox' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_checkbox',               'checkbox_entry_id'                    ) \p;
+CALL update_progress( 'Purging entry orphans: mt_checkbox_fields' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_checkbox_fields',        'checkbox_fields_entry_id'             ) \p;
+CALL update_progress( 'Purging entry orphans: mt_comment' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_comment',                'comment_entry_id'                     ) \p;
+CALL update_progress( 'Purging entry orphans: mt_comment' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_comment',                'comment_promoted_to_entry_id'         ) \p;
+CALL update_progress( 'Purging entry orphans: mt_continuedtext_fields' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_continuedtext_fields',   'continuedtext_fields_entry_id'        ) \p;
+CALL update_progress( 'Purging entry orphans: mt_featured_entry' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_featured_entry',         'featured_entry_entry_id'              ) \p;
+CALL update_progress( 'Purging entry orphans: mt_fileinfo' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_fileinfo',               'fileinfo_entry_id'                    ) \p;
+CALL update_progress( 'Purging entry orphans: mt_placement' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_placement',              'placement_entry_id'                   ) \p;
+CALL update_progress( 'Purging entry orphans: mt_rating' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_rating',                 'rating_entry_id'                      ) \p;
+CALL update_progress( 'Purging entry orphans: mt_ratingparticipant' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_ratingparticipant',      'ratingparticipant_entry_id'           ) \p;
+CALL update_progress( 'Purging entry orphans: mt_ratingvote' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_ratingvote',             'ratingvote_entry_id'                  ) \p;
+CALL update_progress( 'Purging entry orphans: mt_reblog_data' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_reblog_data',            'reblog_data_entry_id'                 ) \p;
+CALL update_progress( 'Purging entry orphans: mt_squeeze_position_stack' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_squeeze_position_stack', 'squeeze_position_stack_entry_id'      ) \p;
+CALL update_progress( 'Purging entry orphans: mt_trackback' );
 CALL purge_orphans('mt_entry',      'entry_id',     'mt_trackback',              'trackback_entry_id'                   ) \p;
 
 
 ### COMMENT CHILDREN ###
 
+CALL update_progress( 'Purging comment orphans: mt_commentfields' );
 CALL purge_orphans('mt_comment',    'comment_id',   'mt_commentfields',         'commentfields_comment_id'              ) \p;
 
 
 ### ASSET CHILDREN ###
 
+CALL update_progress( 'Purging asset orphans: mt_cropper_prototypemaps' );
 CALL purge_orphans('mt_asset',      'asset_id',     'mt_cropper_prototypemaps', 'cropper_prototypemaps_asset_id'        ) \p;
+CALL update_progress( 'Purging asset orphans: mt_cropper_prototypemaps' );
 CALL purge_orphans('mt_asset',      'asset_id',     'mt_cropper_prototypemaps', 'cropper_prototypemaps_cropped_asset_id') \p;
+CALL update_progress( 'Purging asset orphans: mt_objectasset' );
 CALL purge_orphans('mt_asset',      'asset_id',     'mt_objectasset',           'objectasset_asset_id'                  ) \p;
 
 
 ### CATEGORY CHILDREN ###
 
+CALL update_progress( 'Purging category orphans: mt_fileinfo' );
 CALL purge_orphans('mt_category',   'category_id',  'mt_fileinfo',              'fileinfo_category_id'                  ) \p;
+CALL update_progress( 'Purging category orphans: mt_placement' );
 CALL purge_orphans('mt_category',   'category_id',  'mt_placement',             'placement_category_id'                 ) \p;
+CALL update_progress( 'Purging category orphans: mt_reblog_sourcefeed' );
 CALL purge_orphans('mt_category',   'category_id',  'mt_reblog_sourcefeed',     'reblog_sourcefeed_category_id'         ) \p;
+CALL update_progress( 'Purging category orphans: mt_trackback' );
 CALL purge_orphans('mt_category',   'category_id',  'mt_trackback',             'trackback_category_id'                 ) \p;
 
 
 ### TEMPLATE CHILDREN ###
 
+CALL update_progress( 'Purging template orphans: mt_fileinfo' );
 CALL purge_orphans('mt_template',   'template_id',  'mt_fileinfo',              'fileinfo_template_id'                  ) \p;
+CALL update_progress( 'Purging template orphans: mt_squeeze_homepages' );
 CALL purge_orphans('mt_template',   'template_id',  'mt_squeeze_homepages',     'squeeze_homepages_template_id'         ) \p;
+CALL update_progress( 'Purging template orphans: mt_templatemap' );
 CALL purge_orphans('mt_template',   'template_id',  'mt_templatemap',           'templatemap_template_id'               ) \p;
 
 
 ### MISCELLANEOUS OTHER CHILDREN ###
 
+CALL update_progress( 'Purging cropper_prototypes orphans: mt_cropper_prototypemaps' );
 CALL purge_orphans('mt_cropper_prototypes', 'cropper_prototypes_id',    'mt_cropper_prototypemaps', 'cropper_prototypemaps_prototype_id') \p;
+CALL update_progress( 'Purging ratingparticipant orphans: mt_ratingvote' );
 CALL purge_orphans('mt_ratingparticipant',  'ratingparticipant_id',     'mt_ratingvote',            'ratingvote_participant_id'         ) \p;
+CALL update_progress( 'Purging tag orphans: mt_objecttag' );
 CALL purge_orphans('mt_tag',                'tag_id',                   'mt_objecttag',             'objecttag_tag_id'                  ) \p;
+CALL update_progress( 'Purging templatemap orphans: mt_fileinfo' );
 CALL purge_orphans('mt_templatemap',        'templatemap_id',           'mt_fileinfo',              'fileinfo_templatemap_id'           ) \p;
+CALL update_progress( 'Purging trackback orphans: mt_tbping' );
 CALL purge_orphans('mt_trackback',          'trackback_id',             'mt_tbping',                'tbping_tb_id'                      ) \p;
 
 
@@ -178,26 +262,31 @@ CALL purge_orphans('mt_trackback',          'trackback_id',             'mt_tbpi
 # for entries and, in two cases, authors. We don't expect any missing authors
 # but there's no harm in cleaning up.
 
+CALL update_progress( 'Purging entry orphans: mt_objectasset' );
 DELETE FROM mt_objectasset
        WHERE objectasset_object_ds       = 'entry'
          AND objectasset_object_id       > 0
          AND objectasset_object_id       NOT IN (select entry_id from mt_entry) \p;
 
+CALL update_progress( 'Purging entry orphans: mt_objecttag' );
 DELETE FROM mt_objecttag
       WHERE objecttag_object_datasource = 'entry'
         AND objecttag_object_id         > 0
         AND objecttag_object_id         NOT IN (select entry_id from mt_entry) \p;
 
+CALL update_progress( 'Purging entry orphans: mt_objectscore' );
 DELETE FROM mt_objectscore
       WHERE objectscore_object_ds       = 'entry'
         AND objectscore_object_id       > 0
         AND objectscore_object_id       NOT IN (select entry_id from mt_entry) \p;
 
+CALL update_progress( 'Purging author orphans: mt_objectscore' );
 DELETE FROM mt_objectscore
       WHERE objectscore_object_ds       = 'author'
         AND objectscore_object_id       > 0
         AND objectscore_object_id       NOT IN (select author_id from mt_author) \p;
 
+CALL update_progress( 'Purging author orphans: mt_featured' );
 DELETE FROM mt_featured
       WHERE featured_object_type        = 'author'
         AND featured_object_id          > 0
@@ -208,11 +297,13 @@ DELETE FROM mt_featured
 -- In the following cases, we don't delete the record because it's not a
 -- dependent. Instead we simply remove the foreign key of orphaned records.
 
+CALL update_progress( 'Purging author userpic orphans' );
 UPDATE mt_author
     SET   author_userpic_asset_id = NULL
     WHERE author_userpic_asset_id  > 0
       AND author_userpic_asset_id NOT IN (select asset_id from mt_asset) \p;
 
+CALL update_progress( 'Purging entry template orphans' );
 UPDATE mt_entry
     SET   entry_template_id = NULL
     WHERE entry_template_id > 0
@@ -221,19 +312,29 @@ UPDATE mt_entry
 
 ### META TABLE CLEANUP ###
 
+CALL update_progress( 'Purging blog meta orphans' );
 CALL purge_orphaned_meta('blog') \p;
+CALL update_progress( 'Purging entry meta orphans' );
 CALL purge_orphaned_meta('entry') \p;
+CALL update_progress( 'Purging comment meta orphans' );
 CALL purge_orphaned_meta('comment') \p;
+CALL update_progress( 'Purging tbping meta orphans' );
 CALL purge_orphaned_meta('tbping') \p;
+CALL update_progress( 'Purging template meta orphans' );
 CALL purge_orphaned_meta('template') \p;
+CALL update_progress( 'Purging asset meta orphans' );
 CALL purge_orphaned_meta('asset') \p;
+CALL update_progress( 'Purging category meta orphans' );
 CALL purge_orphaned_meta('category') \p;
+CALL update_progress( 'Purging profileevent meta orphans' );
 CALL purge_orphaned_meta('profileevent') \p;
 
 
 ### END OF FUNCTIONAL SQL STATEMENTS ###
 
 SELECT TABLE_NAME as tbl, TABLE_ROWS as rows FROM information_schema.tables WHERE TABLE_SCHEMA = database();
+
+CALL update_progress( 'Finished' );
 
 ### RAW SQL STATEMENTS ###
 
