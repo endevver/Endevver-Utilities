@@ -25,13 +25,6 @@
 
 ### HELPER VIEWS AND STORE PROCEDURES ###
 
--- EXAMPLE: select * from table_counts;
-DROP VIEW IF EXISTS table_counts;
-CREATE VIEW table_counts AS
-     SELECT TABLE_NAME as tbl, TABLE_ROWS as rows
-       FROM information_schema.tables
-      WHERE TABLE_SCHEMA = database(); 
-
 DELIMITER $$
 
 -- SYNTAX:  purge_orphans( PARENT_TABLE, PARENT_PRIMARY_KEY, CHILD_TABLE, CHILD_FOREIGN_KEY );
@@ -93,7 +86,7 @@ DELIMITER ;
 
 ### START OF FUNCTIONAL SQL STATEMENTS ###
 
-select * from table_counts;
+SELECT TABLE_NAME as tbl, TABLE_ROWS as rows FROM information_schema.tables WHERE TABLE_SCHEMA = database();
 
 ### BLOG CHILDREN ###
 
@@ -239,7 +232,8 @@ CALL purge_orphaned_meta('profileevent') \p;
 
 
 ### END OF FUNCTIONAL SQL STATEMENTS ###
-select * from table_counts;
+
+SELECT TABLE_NAME as tbl, TABLE_ROWS as rows FROM information_schema.tables WHERE TABLE_SCHEMA = database();
 
 ### RAW SQL STATEMENTS ###
 
